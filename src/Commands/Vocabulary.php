@@ -84,22 +84,21 @@ class Vocabulary extends BaseEntityGenerate {
     $vocabularies = $vocab_storage->loadMultiple();
     foreach ($vocab_types as $index => $vocab) {
       $vocab_name = $vocab['vid'];
-      $vocan_url_alias = $vocab['url_alias_pattern'];
-      $type = $vocab['type'];
-      if ($vocabularies[$vocab['vid']]) {
-        $this->generatePathautoPattern($vocab_name, $vocan_url_alias, $entity);
+      $vocab_url_alias = $vocab['url_alias_pattern'];
+      if (!empty($vocabularies[$vocab['vid']])) {
+        $this->generatePathautoPattern($vocab_name, $vocab_url_alias, $entity);
         if ($this->updateMode && $data[$index][$this->implementationFlagColumn] === $this->updateFlag) {
           $this->updateEntityType($vocabularies[$vocab['vid']], $vocab);
-          $this->io()->success("Vocabulary $vocab_name updated.");
+          $this->io()->success("Vocabulary {$vocab_name} updated.");
           continue;
         }
-        $this->io()->warning("Vocabulary $vocab_name Already exists. Skipping creation...");
+        $this->io()->warning("Vocabulary {$vocab_name} Already exists. Skipping creation...");
         continue;
       }
       $status = $vocab_storage->create($vocab)->save();
       if ($status === SAVED_NEW) {
-        $this->io()->success("Vocabulary $type is successfully created...");
-        $this->generatePathautoPattern($vocab_name, $vocan_url_alias, $entity);
+        $this->io()->success("Vocabulary {$vocab_name} is successfully created...");
+        $this->generatePathautoPattern($vocab_name, $vocab_url_alias, $entity);
       }
     }
 
