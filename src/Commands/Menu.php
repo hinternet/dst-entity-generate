@@ -70,7 +70,7 @@ class Menu extends BaseEntityGenerate {
       $menus = $menu_storage->loadMultiple();
       foreach ($menus_data as $index => $menu) {
         $menu_name = $menu['label'];
-        if ($menus[$menu['id']]) {
+        if (!empty($menus[$menu['id']])) {
           if ($this->updateMode && $data[$index][$this->implementationFlagColumn] === $this->updateFlag) {
             $this->updateEntityType($menus[$menu['id']], $menu);
             $this->io()->success("Menu $menu_name updated.");
