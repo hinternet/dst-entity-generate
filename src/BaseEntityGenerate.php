@@ -2,9 +2,13 @@
 
 namespace Drupal\dst_entity_generate;
 
+use BadMethodCallException;
+use Drupal;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
+use Drupal\pathauto\PathautoPatternInterface;
 use Drush\Commands\DrushCommands;
+use Exception;
 
 /**
  * Base class for all entity generate commands.
@@ -12,6 +16,8 @@ use Drush\Commands\DrushCommands;
 abstract class BaseEntityGenerate extends DrushCommands {
 
   use StringTranslationTrait;
+
+  protected const SKIP_VALUE = '-';
 
   /**
    * Machine name of entity which is going to import.
@@ -70,7 +76,7 @@ abstract class BaseEntityGenerate extends DrushCommands {
    * @throws \Exception
    */
   public function validateGoogleSheetCreds() {
-    $keyValueStorage = \Drupal::service('keyvalue');
+    $keyValueStorage = Drupal::service('keyvalue');
 
     $googleSheetStorage = $keyValueStorage->get('dst_google_sheet_storage');
 
@@ -78,7 +84,7 @@ abstract class BaseEntityGenerate extends DrushCommands {
 
     foreach ($requiredConfigs as $config) {
       if (empty($googleSheetStorage->get($config))) {
-        throw new \Exception("Please configure $config in google sheet credentials configurations.");
+        throw new Exception("Please configure $config in google sheet credentials configurations.");
       }
     }
   }
@@ -91,7 +97,7 @@ abstract class BaseEntityGenerate extends DrushCommands {
    * @param string $entity
    *   Entity name on which exception occurred.
    */
-  public function displayAndLogException(\Exception $exception, string $entity) {
+  public function displayAndLogException(Exception $exception, string $entity) {
     $message = $this->t('Exception occurred while generating @entity: @exception', [
       '@exception' => $exception->getMessage(),
       '@entity' => $entity,
@@ -108,7 +114,7 @@ abstract class BaseEntityGenerate extends DrushCommands {
    * @throws \Exception
    */
   public function validateEntityForImport() {
-    $enabled_entities = \Drupal::configFactory()->get('dst_entity_generate.settings')->get('sync_entities');
+    $enabled_entities = Drupal::configFactory()->get('dst_entity_generate.settings')->get('sync_entities');
     if ($enabled_entities[$this->dstEntityName] !== $this->dstEntityName && $this->dstEntityName !== 'all') {
       $choice = $this->io()->choice("Entity $this->dstEntityName is not enabled for import. Do you want to enable it?",
         ['Yes', 'No'],
@@ -120,7 +126,7 @@ abstract class BaseEntityGenerate extends DrushCommands {
           break;
 
         case 1:
-          throw new \Exception("Entity $this->dstEntityName is not enabled for import. Aborting...");
+          throw new Exception("Entity $this->dstEntityName is not enabled for import. Aborting...");
       }
     }
   }
@@ -132,7 +138,7 @@ abstract class BaseEntityGenerate extends DrushCommands {
    *   Entity name to enable sync.
    */
   public function enableEntitySync(string $entity_name) {
-    $dst_entity_generate_settings = \Drupal::configFactory()->getEditable('dst_entity_generate.settings');
+    $dst_entity_generate_settings = Drupal::configFactory()->getEditable('dst_entity_generate.settings');
     $sync_entities = $dst_entity_generate_settings->get('sync_entities');
     $sync_entities[$entity_name] = $entity_name;
     $dst_entity_generate_settings->set('sync_entities', $sync_entities)->save();
@@ -143,14 +149,14 @@ abstract class BaseEntityGenerate extends DrushCommands {
    *
    * @hook validate
    *
-   * @throws \Exception
+   * @throws Exception
    */
   public function validateModulesStatus() {
     if (empty($this->dependentModules)) {
       return;
     }
 
-    $moduleHandler = \Drupal::moduleHandler();
+    $moduleHandler = Drupal::moduleHandler();
     $disabledModules = [];
     foreach ($this->dependentModules as $module) {
       if (!$moduleHandler->moduleExists($module)) {
@@ -160,7 +166,7 @@ abstract class BaseEntityGenerate extends DrushCommands {
 
     if (!empty($disabledModules)) {
       $disabledModules = \implode(',', $disabledModules);
-      throw new \Exception("Please enable $disabledModules to continue with this operation. Aborting...");
+      throw new Exception("Please enable $disabledModules to continue with this operation. Aborting...");
     }
   }
 
@@ -177,13 +183,13 @@ abstract class BaseEntityGenerate extends DrushCommands {
    */
   protected function getDataFromSheet(string $sheet, $filter = TRUE) {
     $cache_key = 'dst_sheet_data.' . \strtolower($sheet);
-    $cache_api = \Drupal::cache();
+    $cache_api = Drupal::cache();
 
     if (!empty($cache_api->get($cache_key))) {
       $data = $cache_api->get($cache_key)->data;
     }
     else {
-      $google_sheet_api = \Drupal::service('dst_entity_generate.google_sheet_api');
+      $google_sheet_api = Drupal::service('dst_entity_generate.google_sheet_api');
       $data = $google_sheet_api->getData($sheet);
       // Store cached data for 6 hours.
       $cache_api->set($cache_key, $data, microtime(TRUE) + 21600);
@@ -200,7 +206,7 @@ abstract class BaseEntityGenerate extends DrushCommands {
    * @param string $key
    *   Key of the DST sheet to filter the data.
    *
-   * @return array|null
+   * @return array
    *   Filtered data or empty.
    */
   protected function filterEntityTypeSpecificData(array $data, string $key = 'type') {
@@ -231,15 +237,15 @@ abstract class BaseEntityGenerate extends DrushCommands {
    * @param array $data
    *   Data fetched from google sheet.
    *
-   * @return array|null
+   * @return array
    *   Approved data.
    */
   private function filterApprovedData(array $data) {
     if (empty($data)) {
-      return;
+      return [];
     }
 
-    $config = \Drupal::config('dst_entity_generate.settings');
+    $config = Drupal::config('dst_entity_generate.settings');
     $this->implementationFlagColumn = $config->get('column_name');
     $column_value = $config->get('column_value');
     $this->updateFlag = $config->get('update_flag');
@@ -280,43 +286,41 @@ abstract class BaseEntityGenerate extends DrushCommands {
    * Helper function to generate pathauto pattern.
    */
   public function generatePathautoPattern($bundle, $alias, $entity) {
-    $patternStatus = FALSE;
-    $moduleHandler = \Drupal::moduleHandler();
-    if (!$moduleHandler->moduleExists('pathauto')) {
-      $this->io()->warning($this->t('Please install pathauto module.'));
-      return FALSE;
-    }
-    if (isset($alias)) {
-      $patternStatus = TRUE;
+    try {
+      $moduleHandler = Drupal::moduleHandler();
+      if (!$moduleHandler->moduleExists('pathauto')) {
+        throw new BadMethodCallException('Pathauto module is not enabled.');
+      }
+
+      if (empty($alias) || $alias === self::SKIP_VALUE) {
+        $this->io()->warning($this->t('No alias set for @bundle, skipping.', ['@bundle' => $bundle]));
+        return;
+      }
+
       $pattern_id = $bundle . '_pattern';
       $pattern = $this->entityTypeManager->getStorage('pathauto_pattern')->load($pattern_id);
-      if ($pattern) {
-        $this->io()->warning($this->t('Alias for @bundle is already present, skipping.', ['@bundle' => $bundle]));
-        return FALSE;
+
+      if (!$pattern) {
+        $this->createPathautoPattern($pattern_id, $bundle, $entity, $alias);
+
+        return;
       }
 
-      if ($patternStatus) {
-        $pattern = $this->entityTypeManager->getStorage('pathauto_pattern')->create([
-          'id' => $pattern_id,
-          'label' => $bundle . ' pattern',
-          'type' => 'canonical_entities:' . $entity,
-          'pattern' => $alias,
-          'weight' => -5,
-        ]);
-
-        // Add the bundle condition.
-        $pattern->addSelectionCondition([
-          'id' => 'entity_bundle:' . $entity,
-          'bundles' => [$bundle => $bundle],
-          'negate' => FALSE,
-        ]);
-
-        $pattern->save();
-        $this->io()->success($this->t('Alias for @bundle is created.', ['@bundle' => $bundle]));
+      if ($pattern->get('pattern') === $alias) {
+        $this->io()->warning($this->t('Alias for @bundle already set to @alias, skipping.', [
+          '@bundle' => $bundle,
+          '@alias' => $alias,
+        ]));
+        return;
       }
+
+      $this->updatePathautoPattern($pattern, $alias, $bundle);
     }
-    else {
-      $this->io()->warning($this->t('Alias for @bundle is not available, skipping.', ['@bundle' => $bundle]));
+    catch (\Throwable $e) {
+      $this->io()->error($this->t('Exception occurred while generating pathauto pattern for @bundle: @exception', [
+        '@exception' => str_replace(['"', "'"], '', $e->getMessage()),
+        '@bundle' => $bundle,
+      ]));
     }
   }
 
@@ -392,6 +396,77 @@ abstract class BaseEntityGenerate extends DrushCommands {
       $this->io()->warning($message);
     }
     return $result;
+  }
+
+  /**
+   * Create new pathauto pattern.
+   *
+   * @param string $pattern_id
+   *   The pattern id.
+   * @param string $bundle
+   *   The bundle name.
+   * @param string $entity
+   *   The entity type.
+   * @param string $alias
+   *   The alias pattern.
+   *
+   * @return void
+   */
+  private function createPathautoPattern(
+    string $pattern_id,
+    string $bundle,
+    syring $entity,
+    string $alias
+  ): void {
+    $pattern = $this->entityTypeManager->getStorage('pathauto_pattern')->create(
+      [
+        'id' => $pattern_id,
+        'label' => $bundle.' pattern',
+        'type' => 'canonical_entities:'.$entity,
+        'pattern' => $alias,
+        'weight' => -5,
+      ]
+    );
+
+    // Add the bundle condition.
+    $pattern->addSelectionCondition([
+      'id' => 'entity_bundle:'.$entity,
+      'bundles' => [$bundle => $bundle],
+      'negate' => FALSE,
+    ]);
+
+    $pattern->save();
+    $this->io()->success(
+      $this->t('Alias for @bundle is created.', ['@bundle' => $bundle])
+    );
+  }
+
+  /**
+   * Update existing pathauto pattern.
+   *
+   * @param PathautoPatternInterface $pattern
+   *   The pattern entity.
+   * @param string $alias
+   *   The alias pattern.
+   * @param string $bundle
+   *   The bundle name.
+   *
+   * @return void
+   */
+  private function updatePathautoPattern(
+    PathautoPatternInterface $pattern,
+    string $alias,
+    string $bundle
+  ): void {
+    $pattern->set('pattern', $alias);
+    $pattern->save();
+    $this->io()->warning(
+      $this->t('Alias for @bundle updated from @previous to @current.', [
+        '@bundle' => $bundle,
+        '@previous' => $pattern->get('pattern'),
+        '@current' => $alias,
+      ])
+    );
   }
 
 }

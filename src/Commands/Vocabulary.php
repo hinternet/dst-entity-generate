@@ -140,7 +140,7 @@ class Vocabulary extends BaseEntityGenerate {
       $vocabs['vid'] = $item['machine_name'];
       $vocabs['description'] = $description;
       $vocabs['name'] = $item['name'];
-      $vocabs['url_alias_pattern'] = $item['url_alias_pattern'];
+      $vocabs['url_alias_pattern'] = $item['url_alias_pattern'] ?? self::SKIP_VALUE;
 
       \array_push($vocab_types, $vocabs);
     }
